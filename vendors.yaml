@@ -1,28 +1,28 @@
 vendors:
-  # 1) Brand site — BioLight
+  # BioLight – public page (no auth needed)
   - name: BioLight
     base_url: https://www.biolightstore.com
     list_urls:
       - https://www.biolightstore.com/Products_c_17.html
-    brand_override: BioLight      # BioLight is the brand
+    brand_override: BioLight
     auth:
-      method: none                # public pages
+      method: none
 
-  # 2) Reseller — Natural Solutions (wholesale)
+  # Natural Solutions – reseller, logged-in prices via cookie secret NS_COOKIE
   - name: NaturalSolutions
     base_url: https://naturalsolutionswholesale.com
     list_urls:
       - https://naturalsolutionswholesale.com/collections/all-products
-    brand_override: null          # they sell many brands; don't label as "NaturalSolutions"
+    brand_override: null        # don’t show “NaturalSolutions” as a brand
     auth:
-      method: cookie              # read cookie from a GitHub Secret
-      cookie_env: NS_COOKIE
+      method: cookie
+      cookie_env: NS_COOKIE     # add this as a repo secret
 
-  # 3) Reseller — Emerson Ecologics (wholesale)
+  # Emerson – reseller, logged-in prices via cookie secret EMERSON_COOKIE
   - name: Emerson
     base_url: https://emersonecologics.com
     list_urls:
-      - "https://emersonecologics.com/shop?taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMQ%3D%3D%22%2C%22name%22%3A%22Nutritional+supplements%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMTI%3D%22%2C%22name%22%3A%22Vitamins+%26+Minerals%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMTU%3D%22%2C%22name%22%3A%22Personal+Care+%26+Healthy+Living%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMzE%3D%22%2C%22name%22%3A%22Herbs+%26+Acupuncture%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktODI%3D%22%2C%22name%22%3A%22Homeopathy%22%7D"
+      - "https://emersonecologics.com/shop?taxonomies_array={\"id\":\"VGF4b25vbXktMQ==\",\"name\":\"Nutritional supplements\"}&taxonomies_array={\"id\":\"VGF4b25vbXktMTI=\",\"name\":\"Vitamins & Minerals\"}&taxonomies_array={\"id\":\"VGF4b25vbXktMTU=\",\"name\":\"Personal Care & Healthy Living\"}&taxonomies_array={\"id\":\"VGF4b25vbXktMzE=\",\"name\":\"Herbs & Acupuncture\"}&taxonomies_array={\"id\":\"VGF4b25vbXktODI=\",\"name\":\"Homeopathy\"}"
     brand_override: null
     auth:
       method: cookie
