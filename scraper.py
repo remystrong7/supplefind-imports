@@ -1,155 +1,212 @@
-import csv, sys, time, os
-from datetime import datetime
-from urllib.parse import urljoin, urlparse
+import os, csv, sys, time, re, json
+from urllib.parse import urljoin, urlparse, urlencode
 import requests
 from bs4 import BeautifulSoup
-from slugify import slugify
+
+USER_AGENT = os.getenv("USER_AGENT","Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36")
+HEADERS_BASE = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}
+
 import yaml
+with open("vendors.yaml","r",encoding="utf-8") as f:
+    CFG = yaml.safe_load(f)
 
-USER_AGENT = os.environ.get(
-    "USER_AGENT",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36"
-)
-HEADERS = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}
+def get_session(cookie_value=None):
+    s = requests.Session()
+    s.headers.update(HEADERS_BASE)
+    if cookie_value:
+        s.headers["Cookie"] = cookie_value
+    return s
 
-OUTFILE = "products.csv"
-FIELDS = [
-    "vendor","sku","name","price","currency",
-    "stock_status","product_url","image_url",
-    "ingredients","description","scraped_at"
-]
+def clean_text(x):
+    if not x: return ""
+    return re.sub(r"\s+", " ", x).strip()
 
-def read_yaml(path="vendors.yaml"):
-    if not os.path.exists(path):
-        print("WARNING: vendors.yaml not found. Creating an empty CSV.")
-        write_csv([])
-        sys.exit(0)
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-def safe_get(url, timeout=20):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=timeout)
-        if r.status_code >= 400:
-            print(f"HTTP {r.status_code} for {url}")
-            return None
-        return r
-    except Exception as e:
-        print(f"Request error for {url}: {e}")
-        return None
-
-def pick_text(soup, selectors):
-    """Return first non-empty text from list of CSS selectors (BeautifulSoup)."""
-    if not selectors: return ""
+def first(soup, selectors):
     for sel in selectors:
-        # handle ::attr(...) shorthand
-        attr = None
-        if "::attr(" in sel:
-            sel, attr = sel.split("::attr(")[0].strip(), sel.split("::attr(")[1].split(")")[0]
-        node = soup.select_one(sel)
-        if not node: 
-            # light support for meta[property="..."] in selector with attr content
-            if sel.startswith('meta[') and not attr:
-                meta = soup.select_one(sel)
-                if meta and meta.get("content"): 
-                    return meta.get("content").strip()
-            continue
-        if attr:
-            val = node.get(attr)
-            if val: return val.strip()
-        else:
-            txt = node.get_text(" ", strip=True)
+        el = soup.select_one(sel)
+        if el:
+            txt = el.get_text(strip=True)
             if txt: return txt
     return ""
 
-def product_links(base_url, list_cfg):
-    seen, links = set(), []
-    for page in list_cfg:
-        url = page.get("url")
-        sel = page.get("item_selector")
-        if not url or not sel: 
-            continue
-        resp = safe_get(url)
-        if not resp: 
-            continue
-        soup = BeautifulSoup(resp.text, "lxml")
-        for a in soup.select(sel):
-            href = a.get("href")
-            if not href: 
-                continue
-            url_abs = urljoin(base_url, href)
-            # keep only product-like URLs
-            if "/products/" not in url_abs:
-                continue
-            if url_abs not in seen:
-                seen.add(url_abs)
-                links.append(url_abs)
-    print(f"Found {len(links)} product links")
-    return links
+def first_attr(soup, selectors, attr):
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if el and el.get(attr):
+            return el.get(attr).strip()
+    return ""
 
-def scrape_product(url, vendor, page_cfg, currency=""):
-    resp = safe_get(url)
-    if not resp:
-        return None
-    soup = BeautifulSoup(resp.text, "lxml")
-    name = pick_text(soup, page_cfg.get("title", []))
-    price_raw = pick_text(soup, page_cfg.get("price", []))
-    # normalize price to just digits and dot if present
-    price = ""
-    if price_raw:
-        import re
-        m = re.search(r"[\d,.]+", price_raw)
-        if m:
-            price = m.group(0).replace(",", "")
-    image = pick_text(soup, page_cfg.get("image", []))
-    if image and image.startswith("//"):
-        image = "https:" + image
-    elif image and image.startswith("/"):
-        image = urljoin(url, image)
-    desc = pick_text(soup, page_cfg.get("description", []))
-    sku = slugify(name)[:60] if name else slugify(urlparse(url).path.split("/")[-1])[:60]
-    row = {
-        "vendor": vendor,
-        "sku": sku or "",
-        "name": name or "",
-        "price": price or "",
-        "currency": currency or "",
-        "stock_status": "",   # can add if you locate an availability element
-        "product_url": url,
-        "image_url": image or "",
-        "ingredients": "",    # can be parsed from desc later if you want
-        "description": desc or "",
-        "scraped_at": datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    }
-    return row
+def guess_price(soup):
+    # try meta first
+    m = first_attr(soup, ['meta[property="product:price:amount"]','meta[itemprop="price"]'], "content")
+    if m: return m
+    # common selectors
+    t = first(soup, ['[itemprop=price]','span.price','span.woocommerce-Price-amount','div.price','p.price'])
+    t = re.sub(r"[^\d\.,]", "", t)
+    t = t.replace(",", "")  # simple normalize
+    return t or ""
 
-def write_csv(rows):
-    with open(OUTFILE, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k, "") for k in FIELDS})
-    print(f"Wrote {len(rows)} rows to {OUTFILE}")
+def guess_currency(soup):
+    c = first_attr(soup, ['meta[property="product:price:currency"]','meta[itemprop="priceCurrency"]'], "content")
+    if c: return c
+    return "USD"
+
+def guess_sku(soup):
+    sku = first(soup, ['[itemprop=sku]','span.sku','div.sku','p.sku','span.product-sku','div.product-sku'])
+    if not sku:
+        # look for "SKU: 123"
+        text = soup.get_text(" ", strip=True)
+        m = re.search(r"\bSKU[:\s#]*([A-Za-z0-9\-\._/]+)\b", text, re.I)
+        if m: sku = m.group(1)
+    return clean_text(sku)
+
+def guess_stock(soup):
+    txt = soup.get_text(" ", strip=True).lower()
+    if "out of stock" in txt or "sold out" in txt:
+        return "outofstock"
+    # Woo/Shopify buttons
+    btn = soup.select_one("button.add_to_cart_button, button[name='add'], button#AddToCart, form[action*='cart'] button")
+    return "instock" if btn else "instock"
+
+def guess_image(soup):
+    og = first_attr(soup, ['meta[property="og:image"]','meta[name="og:image"]'], "content")
+    if og: return og
+    return first_attr(soup, ["img#landingImage","img.wp-post-image","img.attachment-shop_single","img.product-single__photo","img[itemprop=image]","img"], "src") or ""
+
+def guess_description(soup):
+    desc = first(soup, ["div#tab-description","div.product-short-description","div.product_description","div[itemprop=description]","div#description","section.product-description","div.product-description","div.woocommerce-Tabs-panel--description","div#tab-1"])
+    if not desc:
+        # fallback to the longest paragraph block
+        ps = sorted((p.get_text(" ", strip=True) for p in soup.select("p")), key=lambda x: len(x), reverse=True)
+        desc = ps[0] if ps else ""
+    return clean_text(desc)
+
+def find_links(soup, base_url):
+    links = set()
+    for a in soup.select("a[href]"):
+        href = a["href"]
+        if not href: continue
+        if any(x in href.lower() for x in ["/product", "/products", "/item", "/shop/", "/p/", "/detail"]):
+            links.add(urljoin(base_url, href))
+    # also keep collection cards with data-product-handle
+    for el in soup.select("[data-product-handle]"):
+        handle = el.get("data-product-handle")
+        if handle:
+            links.add(urljoin(base_url, f"/products/{handle}"))
+    return list(links)
+
+def list_pages(base_url, list_url):
+    # very simple paginator for Shopify-like ?page=
+    urls = [list_url]
+    parsed = urlparse(list_url)
+    sep = "&" if parsed.query else "?"
+    for p in range(2, 51):
+        urls.append(f"{list_url}{sep}page={p}")
+    return urls
+
+def scrape_vendor(v):
+    name = v["name"]
+    base = v["base_url"]
+    brand_override = v.get("brand_override")
+    auth = v.get("auth", {"method":"none"})
+    cookie = None
+    if auth.get("method") == "cookie":
+        cookie_env = auth.get("cookie_env")
+        cookie = os.getenv(cookie_env, "")
+    s = get_session(cookie)
+
+    seen = set()
+    products = []
+    for start_url in v["list_urls"]:
+        for page_url in list_pages(base, start_url):
+            try:
+                r = s.get(page_url, timeout=30)
+                if r.status_code >= 400: break
+                soup = BeautifulSoup(r.text, "lxml")
+            except Exception:
+                break
+
+            links = find_links(soup, base)
+            if not links:
+                # stop paging if nothing new
+                break
+
+            for url in links:
+                if url in seen: continue
+                seen.add(url)
+                try:
+                    pr = s.get(url, timeout=30)
+                    if pr.status_code >= 400: continue
+                    ps = BeautifulSoup(pr.text, "lxml")
+                    title = clean_text(first(ps, ["h1.product_title","h1.product-title","h1.product-name","h1","meta[property='og:title']"]))
+                    price = guess_price(ps)
+                    currency = guess_currency(ps)
+                    sku = guess_sku(ps)
+                    stock = guess_stock(ps)
+                    img = guess_image(ps)
+                    desc = guess_description(ps)
+
+                    # ingredients (best-effort)
+                    ing = ""
+                    for lbl in ["ingredients", "supplement facts", "facts"]:
+                        m = re.search(rf"{lbl}\s*[:\-–]\s*(.+?)\s{1,10}[A-Z][a-z]{{2,}}", ps.get_text(" ", strip=True), re.I)
+                        if m:
+                            ing = m.group(1)[:500]
+                            break
+
+                    # brand
+                    brand = brand_override or clean_text(first(ps, ["span.brand","div.brand a","a.brand"]))
+                    # dedupe key
+                    key = sku or url
+                    products.append({
+                        "vendor": name,
+                        "brand": brand or "",
+                        "sku": sku or "",
+                        "name": title or "",
+                        "price": price or "",
+                        "currency": currency or "USD",
+                        "stock_status": stock,
+                        "inventory": "1" if stock=="instock" else "0",
+                        "product_url": url,
+                        "image_url": img or "",
+                        "ingredients": ing,
+                        "description": desc,
+                        "scraped_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+                except Exception:
+                    continue
+    return products
+
+def dedupe(rows):
+    out = {}
+    for r in rows:
+        key = (r.get("sku") or "").strip().lower() or r.get("product_url").lower()
+        # prefer rows that have price/sku/img
+        cur = out.get(key)
+        score = (1 if r.get("price") else 0) + (1 if r.get("sku") else 0) + (1 if r.get("image_url") else 0)
+        if not cur:
+            out[key]= (score, r)
+        else:
+            if score > cur[0]:
+                out[key]= (score, r)
+    return [r for _,r in out.values()]
 
 def main():
-    cfg = read_yaml()
-    vendors = cfg.get("vendors", [])
-    all_rows = []
-    for v in vendors:
-        name = v.get("name","")
-        base = v.get("base_url","")
-        if not base:
-            print(f"Skip vendor {name}: missing base_url")
-            continue
-        print(f"=== {name} ===")
-        links = product_links(base, v.get("product_list", []))
-        for i, url in enumerate(links, start=1):
-            print(f"[{i}/{len(links)}] {url}")
-            row = scrape_product(url, name, v.get("product_page", {}), v.get("currency",""))
-            if row:
-                all_rows.append(row)
-            time.sleep(0.5)  # be polite
-    write_csv(all_rows)
+    all_rows=[]
+    for v in CFG["vendors"]:
+        rows = scrape_vendor(v)
+        print(f"::notice:: {v['name']} scraped {len(rows)} rows")
+        all_rows.extend(rows)
+    rows = dedupe(all_rows)
+    print(f"::notice:: After dedupe: {len(rows)} rows")
+
+    fields = ["vendor","brand","sku","name","price","currency","stock_status","inventory","product_url","image_url","ingredients","description","scraped_at"]
+    with open("products.csv","w",newline="",encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    print("::notice:: Wrote products.csv")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
