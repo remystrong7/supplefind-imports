@@ -1,0 +1,10 @@
+vendors:
+  - name: Biolight
+    domain: "https://biolightstore.com"
+    products_url: "https://biolightstore.com/collections/all"
+    selectors:
+      product: ".product-grid-item"
+      name: ".product-title"
+      price: ".product-price"
+      image: "img"
+      link: "a"
