@@ -1,20 +1,29 @@
 vendors:
-  - name: biolight
-    base_url: "https://biolight.health"
-    product_list:
-      - url: "https://biolight.health/collections/all"
-        item_selector: 'a[href*="/products/"]'
-    product_page:
-      title:
-        - "h1.product__title"
-        - "h1"
-      price:
-        - ".price__regular .price-item--regular"
-        - "span.price-item.price-item--regular"
-      image:
-        - 'meta[property="og:image"]::attr(content)'
-        - 'img[src*="/products/"]::attr(src)'
-      description:
-        - ".product__description"
-        - "#ProductAccordion-product-details"
-    currency: "USD"
+  # 1) Brand site — BioLight
+  - name: BioLight
+    base_url: https://www.biolightstore.com
+    list_urls:
+      - https://www.biolightstore.com/Products_c_17.html
+    brand_override: BioLight      # BioLight is the brand
+    auth:
+      method: none                # public pages
+
+  # 2) Reseller — Natural Solutions (wholesale)
+  - name: NaturalSolutions
+    base_url: https://naturalsolutionswholesale.com
+    list_urls:
+      - https://naturalsolutionswholesale.com/collections/all-products
+    brand_override: null          # they sell many brands; don't label as "NaturalSolutions"
+    auth:
+      method: cookie              # read cookie from a GitHub Secret
+      cookie_env: NS_COOKIE
+
+  # 3) Reseller — Emerson Ecologics (wholesale)
+  - name: Emerson
+    base_url: https://emersonecologics.com
+    list_urls:
+      - "https://emersonecologics.com/shop?taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMQ%3D%3D%22%2C%22name%22%3A%22Nutritional+supplements%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMTI%3D%22%2C%22name%22%3A%22Vitamins+%26+Minerals%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMTU%3D%22%2C%22name%22%3A%22Personal+Care+%26+Healthy+Living%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktMzE%3D%22%2C%22name%22%3A%22Herbs+%26+Acupuncture%22%7D&taxonomies_array=%7B%22id%22%3A%22VGF4b25vbXktODI%3D%22%2C%22name%22%3A%22Homeopathy%22%7D"
+    brand_override: null
+    auth:
+      method: cookie
+      cookie_env: EMERSON_COOKIE
