@@ -1,10 +1,20 @@
 vendors:
-  - name: Biolight
-    domain: "https://biolightstore.com"
-    products_url: "https://biolightstore.com/collections/all"
-    selectors:
-      product: ".product-grid-item"
-      name: ".product-title"
-      price: ".product-price"
-      image: "img"
-      link: "a"
+  - name: biolight
+    base_url: "https://biolight.health"
+    product_list:
+      - url: "https://biolight.health/collections/all"
+        item_selector: 'a[href*="/products/"]'
+    product_page:
+      title:
+        - "h1.product__title"
+        - "h1"
+      price:
+        - ".price__regular .price-item--regular"
+        - "span.price-item.price-item--regular"
+      image:
+        - 'meta[property="og:image"]::attr(content)'
+        - 'img[src*="/products/"]::attr(src)'
+      description:
+        - ".product__description"
+        - "#ProductAccordion-product-details"
+    currency: "USD"
