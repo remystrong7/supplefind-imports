@@ -3,9 +3,8 @@ name: scrape
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 9 * * *'   # daily 09:00 UTC
+    - cron: "0 9 * * *"   # daily 09:00 UTC
 
-# ✅ give this workflow write access to push the CSV
 permissions:
   contents: write
 
@@ -19,10 +18,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      - name: Show files (debug)
-        run: ls -la
+          python-version: "3.11"
 
       - name: Install deps
         run: |
@@ -32,20 +28,17 @@ jobs:
       - name: Run scraper
         env:
           USER_AGENT: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36
-        run: |
-          python scraper.py
-          echo "---- CSV head ----"
-          head -n 5 products.csv || true
+          NS_COOKIE: ${{ secrets.NS_COOKIE }}
+          EMERSON_COOKIE: ${{ secrets.EMERSON_COOKIE }}
+        run: python scraper.py
 
-      - name: Commit CSV to repo
+      - name: Commit products.csv
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Update scraped products.csv"
           file_pattern: products.csv
 
-      # ♻️ Always upload the CSV even if commit step fails
       - name: Upload products.csv artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: products
