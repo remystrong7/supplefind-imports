@@ -1,26 +1,46 @@
 name: scrape
+
 on:
+  workflow_dispatch:   # run by hand
   schedule:
-    - cron: "0 5 * * *"   # daily at 05:00 UTC
-  workflow_dispatch:
+    - cron: '0 9 * * *'  # daily at 09:00 UTC (change if you want)
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: '3.11'
 
-      - run: pip install -r requirements.txt
-      - run: python scraper.py
+      - name: Show files (debug)
+        run: ls -la
 
-      - name: Commit & push CSV
+      - name: Install deps
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
-          git add products.csv
-          git commit -m "Daily scrape: $(date -u +%F)" || echo "No changes to commit"
-          git push
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          USER_AGENT: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36
+        run: python scraper.py
+
+      # Commit the generated CSV back to the repo
+      - name: Commit CSV to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update scraped products.csv"
+          file_pattern: products.csv
+
+      # Also upload as artifact (backup / quick download)
+      - name: Upload products.csv artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: products
+          path: products.csv
+          if-no-files-found: warn
